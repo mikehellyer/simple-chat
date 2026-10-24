@@ -30,6 +30,13 @@ def self_test() -> int:
     except Exception:
         checks["networking"] = False
     try:
+        from simple_chat.core.crypto import Channel
+
+        channel = Channel(bytes(32))
+        checks["encryption"] = channel.open_line(channel.seal_line(b"hi\n").rstrip(b"\n")) == b"hi"
+    except Exception:
+        checks["encryption"] = False
+    try:
         import certifi  # noqa: F401
 
         checks["certificates"] = True

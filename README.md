@@ -16,6 +16,7 @@ they find each other by themselves.
   every address on your network for machines running Simple-Chat — for
   networks where routers or Wi-Fi settings block the automatic broadcasts.
   Machines it finds are remembered and kept in touch with directly.
+- **Encryption** with a passphrase shared by your machines (see below).
 - Machines on another subnet or VPN: *File → Add a machine by address*.
 
 Builds for Linux (.deb, PC and Raspberry Pi), macOS (.dmg) and Windows
@@ -31,9 +32,18 @@ Update button — it never updates by itself.
   delivered until it's really there.
 - Chats are kept in SQLite in the app's data folder.
 
-Everything stays on your network. There's no encryption or password:
-anyone on the same network running Simple-Chat can message you, so
-it's meant for a home network.
+Everything stays on your network.
+
+## Encryption
+
+*Options → Encryption passphrase*: type the same passphrase on each of
+your machines and everything Simple-Chat sends is encrypted with it
+(AES-256-GCM, with the key stretched from the passphrase by scrypt).
+Machines without it can't read your messages, send you any, or even see
+your machines. Only the key is saved, never the passphrase; the panel
+top-left shows a check code (e.g. `PNWD-GETY`) that matches on every
+machine with the same passphrase. Without a passphrase, messages go as
+plain text.
 
 ## Development
 

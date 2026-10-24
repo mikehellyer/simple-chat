@@ -126,7 +126,7 @@ class _Probe(QObject):
         self._reader = LineReader()
         self._stopped = False
         self._socket = QTcpSocket(self)
-        self._socket.connected.connect(lambda: self._socket.write(protocol.encode_who()))
+        self._socket.connected.connect(lambda: self._socket.write(scanner._node.channel.seal_line(protocol.encode_who())))
         self._socket.readyRead.connect(self._read)
         self._socket.errorOccurred.connect(self.stop)
         self._socket.disconnected.connect(self.stop)
@@ -142,7 +142,7 @@ class _Probe(QObject):
     @Slot()
     def _read(self) -> None:
         for line in self._reader.feed(bytes(self._socket.readAll())):
-            answer = protocol.decode_line(line)
+            answer = self._scanner._node._decode(line)
             if isinstance(answer, Announce):
                 self._scanner._answered(answer, self._host)
                 self.stop()

@@ -21,6 +21,7 @@ from PySide6.QtNetwork import (
 )
 
 from simple_chat.core import protocol
+from simple_chat.core.crypto import Channel
 from simple_chat.core.protocol import Ack, Announce, ChatMessage, LineReader, Who
 from simple_chat.core.store import ChatStore, StoredMessage
 
@@ -46,6 +47,7 @@ class ChatNode(QObject):
                  message_port: int = protocol.PREFERRED_MESSAGE_PORT, parent=None):
         super().__init__(parent)
         self._store = store
+        self.channel = Channel()
         self.node_id = node_id
         self.name = name
         self._discovery_port = discovery_port
@@ -118,6 +120,20 @@ class ChatNode(QObject):
         self.name = name
         self._soon.start()
 
+    def set_channel(self, channel: Channel) -> None:
+        """Switch encryption on, off, or to a new passphrase. Machines on
+        the old one stop hearing us (and we them) at once; anything
+        still pending goes out under the new one."""
+        self.channel = channel
+        for sender in list(self._senders.values()):
+            sender.abort()
+        for incoming in list(self._incoming):
+            incoming.close()
+        self._heard.clear()
+        self._check_online()
+        self._broadcast(hello=True)
+        self._ping_manual_hosts()
+
     def set_manual_hosts(self, hosts: list[str]) -> None:
         self._manual_hosts = list(hosts)
         self._ping_manual_hosts()
@@ -154,8 +170,8 @@ class ChatNode(QObject):
             sender.send_pending()
 
     def _wire_message(self, stored: StoredMessage) -> bytes:
-        return protocol.encode_message(ChatMessage(
-            stored.id, self.node_id, self.name, self.port, stored.text, stored.sent_at))
+        return self.channel.seal_line(protocol.encode_message(ChatMessage(
+            stored.id, self.node_id, self.name, self.port, stored.text, stored.sent_at)))
 
     def _acked(self, message_id: str) -> None:
         peer_id = self._store.mark_delivered(message_id)
@@ -183,10 +199,16 @@ class ChatNode(QObject):
         stored = self._store.add_incoming(message.id, message.sender_id, message.text, message.sent_at)
         if stored is not None:
             self.message_received.emit(stored)
-        return protocol.encode_ack(Ack(message.id))
+        return self.channel.seal_line(protocol.encode_ack(Ack(message.id)))
+
+    def _decode(self, line: bytes):
+        """A received TCP line, opened and parsed; None if it isn't
+        readable under the current passphrase (or lack of one)."""
+        opened = self.channel.open_line(line)
+        return protocol.decode_line(opened) if opened is not None else None
 
     def _who_reply(self) -> bytes:
-        return protocol.encode_announce_line(Announce(self.node_id, self.name, self.port))
+        return self.channel.seal_line(protocol.encode_announce_line(Announce(self.node_id, self.name, self.port)))
 
     # --- discovery
 
@@ -209,7 +231,8 @@ class ChatNode(QObject):
     def _read_datagrams(self) -> None:
         while self._udp.hasPendingDatagrams():
             datagram = self._udp.receiveDatagram()
-            announce = protocol.decode_announce(bytes(datagram.data()))
+            data = self.channel.open_datagram(bytes(datagram.data()))
+            announce = protocol.decode_announce(data) if data is not None else None
             if announce is None or announce.node_id == self.node_id:
                 continue
             host = _plain_ipv4(datagram.senderAddress())
@@ -242,7 +265,7 @@ class ChatNode(QObject):
         return list(targets.values())
 
     def _send_announce(self, address: QHostAddress, hello: bool) -> None:
-        data = protocol.encode_announce(Announce(self.node_id, self.name, self.port, hello))
+        data = self.channel.seal_datagram(protocol.encode_announce(Announce(self.node_id, self.name, self.port, hello)))
         self._udp.writeDatagram(data, address, self._discovery_port)
 
     def say_hello(self, address: QHostAddress) -> None:
@@ -327,7 +350,7 @@ class _Sender(QObject):
     @Slot()
     def _read(self) -> None:
         for line in self._reader.feed(bytes(self._socket.readAll())):
-            reply = protocol.decode_line(line)
+            reply = self._node._decode(line)
             if isinstance(reply, Ack) and reply.id in self._outstanding:
                 self._outstanding.discard(reply.id)
                 self.succeeded = True
@@ -381,7 +404,7 @@ class _Incoming(QObject):
     def _read(self) -> None:
         self._idle.start()
         for line in self._reader.feed(bytes(self._socket.readAll())):
-            message = protocol.decode_line(line)
+            message = self._node._decode(line)
             if isinstance(message, ChatMessage):
                 self._socket.write(self._node._received(message, self._host))
             elif isinstance(message, Who):

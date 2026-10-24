@@ -24,11 +24,14 @@ from PySide6.QtWidgets import (
 )
 
 from simple_chat import __version__
+from simple_chat.core import crypto
 from simple_chat.core.self_update import download_asset, find_asset_for_this_platform, launch_installer
 from simple_chat.core.settings import SettingsStore
 from simple_chat.core.store import ChatStore, StoredMessage
 from simple_chat.core.updater import check_for_update
 from simple_chat.gui.chat_view import ChatView
+from simple_chat.gui.passphrase_dialog import SET, TURN_OFF, PassphraseDialog
+from simple_chat.gui import style
 from simple_chat.gui.peer_list import PeerList, PeerRow, last_seen_text
 from simple_chat.gui.update_banner import UpdateBanner
 from simple_chat.gui.workers import BackgroundRunner
@@ -64,6 +67,8 @@ class MainWindow(QMainWindow):
         self._node.message_received.connect(self._on_received)
         self._node.message_delivered.connect(self._on_delivered)
         self._node.status.connect(lambda text: self.statusBar().showMessage(text, 15000))
+        self._key = crypto.key_from_hex(s.network_key)
+        self._node.channel = crypto.Channel(self._key)
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -83,6 +88,7 @@ class MainWindow(QMainWindow):
         self._me.setObjectName("me")
         self._me.setTextFormat(Qt.RichText)
         self._me.setWordWrap(True)
+        self._me.linkActivated.connect(lambda _link: self._set_passphrase())
         left_layout.addWidget(self._me)
         self._peers = PeerList()
         self._peers.peer_chosen.connect(self._open_peer)
@@ -135,6 +141,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         options = self.menuBar().addMenu("&Options")
+        options.addAction("Encryption passphrase…", self._set_passphrase)
+        options.addSeparator()
         self._tray_option = QAction("Keep running in the tray when the window is closed", self, checkable=True)
         self._tray_option.setChecked(self._settings.settings.close_to_tray)
         self._tray_option.toggled.connect(lambda on: self._settings.update(close_to_tray=on))
@@ -167,8 +175,14 @@ class MainWindow(QMainWindow):
 
     def _update_me(self) -> None:
         addresses = ", ".join(self._node.local_addresses()) or "no network"
+        if self._key:
+            lock = (f"<a href='lock' style='color:{style.ONLINE}; text-decoration:none'>🔒 Encrypted · "
+                    f"{crypto.fingerprint(self._key)}</a>")
+        else:
+            lock = (f"<a href='lock' style='color:#c0392b; text-decoration:none'>⚠ Not encrypted — "
+                    "set a passphrase</a>")
         self._me.setText(f"<b>{html.escape(self._node.name)}</b> <span style='color:#7a7a80'>(this machine)"
-                         f"<br>{html.escape(addresses)}</span>")
+                         f"<br>{html.escape(addresses)}</span><br>{lock}")
 
     def _refresh_peers(self) -> None:
         unread = self._store.unread_counts()
@@ -244,6 +258,30 @@ class MainWindow(QMainWindow):
             self._settings.update(manual_hosts=hosts)
         self._node.set_manual_hosts(hosts)
         self.statusBar().showMessage(f"Asking {host} to say hello…", 8000)
+
+    def _set_passphrase(self) -> None:
+        dialog = PassphraseDialog(crypto.fingerprint(self._key) if self._key else None, self)
+        if dialog.exec() != PassphraseDialog.Accepted:
+            return
+        if dialog.action == TURN_OFF:
+            self._apply_key(None)
+        elif dialog.action == SET:
+            passphrase = dialog.passphrase
+            self.statusBar().showMessage("Making the key…")
+            self._runner.run(lambda: crypto.derive_key(passphrase), self._apply_key,
+                             lambda error: self.statusBar().showMessage(f"Couldn't make the key: {error}", 10000))
+
+    def _apply_key(self, key) -> None:
+        self._key = key
+        self._settings.update(network_key=key.hex() if key else "")
+        self._node.set_channel(crypto.Channel(key))
+        self._update_me()
+        self._refresh_peers()
+        if key:
+            self.statusBar().showMessage(f"Encryption on — check code {crypto.fingerprint(key)}. "
+                                         "Set the same passphrase on your other machines.", 15000)
+        else:
+            self.statusBar().showMessage("Encryption off — messages now go as plain text", 10000)
 
     def _scan(self) -> None:
         scanner = NetworkScanner(self._node)

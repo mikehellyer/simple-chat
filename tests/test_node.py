@@ -166,3 +166,66 @@ def test_scan_can_be_cancelled(app):
         assert len(results) == 1
     finally:
         a.stop()
+
+
+def test_encrypted_machines_talk_and_others_cannot(app):
+    import os
+
+    from simple_chat.core.crypto import Channel
+
+    key = os.urandom(32)
+    port = free_udp_port()
+    a, a_store = make("Alpha", port, "aaaa")
+    b, b_store = make("Beta", port, "bbbb")
+    c, c_store = make("Gamma", port, "cccc")  # no passphrase
+    d, d_store = make("Delta", port, "dddd")  # a different one
+    a.set_channel(Channel(key))
+    b.set_channel(Channel(key))
+    d.set_channel(Channel(os.urandom(32)))
+    try:
+        introduce(a, b)
+        a.send("bbbb", "for Beta only")
+        assert spin(lambda: not a_store.pending_for("bbbb"))
+        assert b_store.conversation("aaaa")[0].text == "for Beta only"
+        # machines on another passphrase (or none) get nothing through
+        for other, store in ((c, c_store), (d, d_store)):
+            introduce(a, other)
+            a.send(other.node_id, "should not arrive")
+            other.send("aaaa", "nor this")
+        spin(lambda: False, 1.0)
+        for store in (a_store, c_store, d_store):
+            others = [p for p in ("aaaa", "cccc", "dddd") if store is not a_store or p != "aaaa"]
+            received = [m for p in others for m in store.conversation(p) if not m.outgoing]
+            assert received == []
+        # each side's message is still waiting, unsent
+        assert len(a_store.pending_for("cccc")) == 1 and len(a_store.pending_for("dddd")) == 1
+        assert len(c_store.pending_for("aaaa")) == 1 and len(d_store.pending_for("aaaa")) == 1
+        # the scan doesn't find them either, but does find Beta
+        from simple_chat.net.scanner import NetworkScanner
+
+        for target, expect in ((b, True), (c, False), (d, False)):
+            results = []
+            scanner = NetworkScanner(a, targets=["127.0.0.1"], port=target.port)
+            scanner.finished.connect(results.append)
+            a._heard.pop(target.node_id, None)
+            scanner.start()
+            assert spin(lambda: results, 6)
+            assert (target.node_id in results[0]) == expect
+    finally:
+        for n in (a, b, c, d):
+            n.stop()
+
+
+def test_changing_passphrase_drops_old_machines(app):
+    import os
+
+    from simple_chat.core.crypto import Channel
+
+    a, _ = make("Alpha", free_udp_port(), "aaaa")
+    try:
+        a._hear("bbbb", "Beta", "127.0.0.1", 9)
+        assert a.is_online("bbbb")
+        a.set_channel(Channel(os.urandom(32)))
+        assert not a.is_online("bbbb")
+    finally:
+        a.stop()

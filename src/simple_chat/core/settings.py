@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -33,6 +34,9 @@ class Settings:
     # Machines added by address because broadcasts don't reach them
     # (another subnet, a VPN). Each is asked "are you there?" regularly.
     manual_hosts: list = field(default_factory=list)
+    # The encryption key made from the shared passphrase (hex), or "" for
+    # none. The passphrase itself is never saved.
+    network_key: str = ""
 
 
 def default_config_path(profile: str = "") -> Path:
@@ -86,5 +90,8 @@ class SettingsStore:
         try:
             self._config_path.parent.mkdir(parents=True, exist_ok=True)
             self._config_path.write_text(json.dumps(asdict(self.settings), indent=2))
+            # it holds the encryption key: readable by this user only
+            # (a no-op on Windows, where the user's profile is private)
+            os.chmod(self._config_path, 0o600)
         except OSError:
             pass
