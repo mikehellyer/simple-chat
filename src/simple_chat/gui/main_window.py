@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QProgressDialog,
+    QPushButton,
     QSplitter,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -31,6 +33,7 @@ from simple_chat.gui.peer_list import PeerList, PeerRow, last_seen_text
 from simple_chat.gui.update_banner import UpdateBanner
 from simple_chat.gui.workers import BackgroundRunner
 from simple_chat.net.node import ChatNode
+from simple_chat.net.scanner import NetworkScanner
 
 UPDATE_OWNER = "mikehellyer"
 UPDATE_REPO = "simple-chat"
@@ -86,6 +89,11 @@ class MainWindow(QMainWindow):
         self._peers.forget_requested.connect(self._forget)
         self._peers.clear_requested.connect(self._clear)
         left_layout.addWidget(self._peers, stretch=1)
+        scan_button = QPushButton("Scan the network")
+        scan_button.setObjectName("scan")
+        scan_button.setToolTip("Look at every address on this network for machines running Simple-Chat")
+        scan_button.clicked.connect(self._scan)
+        left_layout.addWidget(scan_button)
         splitter.addWidget(left)
         self._chat = ChatView()
         self._chat.send_requested.connect(self._send)
@@ -118,6 +126,7 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction("Change my name…", self._rename)
+        file_menu.addAction("Scan the network for machines…", self._scan)
         file_menu.addAction("Add a machine by address…", self._add_by_address)
         file_menu.addSeparator()
         quit_action = QAction("Quit", self)
@@ -235,6 +244,55 @@ class MainWindow(QMainWindow):
             self._settings.update(manual_hosts=hosts)
         self._node.set_manual_hosts(hosts)
         self.statusBar().showMessage(f"Asking {host} to say hello…", 8000)
+
+    def _scan(self) -> None:
+        scanner = NetworkScanner(self._node)
+        if not scanner.total:
+            QMessageBox.information(self, "Scan the network", "This machine isn't on a network to scan.")
+            return
+        online_before = {p.id for p in self._store.peers() if self._node.is_online(p.id)}
+        dialog = QProgressDialog(f"Looking for Simple-Chat on {scanner.total} addresses…", "Stop", 0, scanner.total, self)
+        dialog.setWindowTitle("Scan the network")
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.canceled.connect(scanner.cancel)
+        scanner.progress.connect(lambda done, total: dialog.setValue(done))
+        scanner.finished.connect(lambda found: self._scan_finished(found, online_before, dialog, scanner))
+        scanner.start()
+        dialog.show()
+
+    def _scan_finished(self, found: dict, online_before: set, dialog: QProgressDialog, scanner) -> None:
+        dialog.close()
+        scanner.deleteLater()
+        # Machines the broadcasts weren't reaching are knocked on from
+        # now on, or they'd drop back to "offline" in a few seconds.
+        hosts = list(self._settings.settings.manual_hosts)
+        for peer_id, host in found.items():
+            if peer_id not in online_before and host not in hosts:
+                hosts.append(host)
+        if hosts != self._settings.settings.manual_hosts:
+            self._settings.update(manual_hosts=hosts)
+            self._node.set_manual_hosts(hosts)
+        self._refresh_peers()
+        if not found:
+            QMessageBox.information(
+                self, "Scan the network",
+                "No other machines running Simple-Chat were found.<br><br>"
+                "Check Simple-Chat is open on them (it can be in the tray), and that a firewall isn't "
+                f"blocking it — it uses TCP port {self._node.port} and UDP port {self._node.discovery_port}.")
+            return
+        lines = []
+        for peer_id, host in sorted(found.items(), key=lambda item: item[1]):
+            peer = self._store.peer(peer_id)
+            name = html.escape(peer.name if peer else host)
+            new = "" if peer_id in online_before else " <b>— new</b>"
+            lines.append(f"{name} &nbsp;<span style='color:#7a7a80'>{html.escape(host)}</span>{new}")
+        count = len(found)
+        QMessageBox.information(self, "Scan the network",
+                                f"Found {count} machine{'s' if count != 1 else ''} running Simple-Chat:<br><br>"
+                                + "<br>".join(lines))
 
     def _show_addresses(self) -> None:
         addresses = "<br>".join(html.escape(a) for a in self._node.local_addresses()) or "No network connection"

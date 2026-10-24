@@ -149,7 +149,8 @@ class ChatView(QWidget):
         if self._peer_id is None:
             self._browser.setHtml(f"<p align='center' style='color:{style.MUTED}'><br><br>"
                                   "Pick a machine on the left to chat with it.<br><br>"
-                                  "Machines running Simple-Chat on this network show up there by themselves.</p>")
+                                  "Machines running Simple-Chat on this network show up there by themselves.<br>"
+                                  "If one doesn't, press <b>Scan the network</b>.</p>")
             return
         if not self._messages:
             self._browser.setHtml(f"<p align='center' style='color:{style.MUTED}'><br><br>"

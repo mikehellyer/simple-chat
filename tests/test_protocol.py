@@ -42,3 +42,10 @@ def test_line_reader_refuses_endless_line():
     r.feed(b"x" * (protocol.MAX_LINE_BYTES + 1))
     assert r.broken
     assert r.feed(b"\n") == []
+
+
+def test_who_and_announce_lines():
+    assert protocol.decode_line(protocol.encode_who().strip()) == protocol.Who()
+    a = Announce("abc", "Pi", 47475)
+    line = protocol.encode_announce_line(a)
+    assert line.endswith(b"\n") and protocol.decode_line(line.strip()) == a

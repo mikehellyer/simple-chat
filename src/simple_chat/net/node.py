@@ -21,7 +21,7 @@ from PySide6.QtNetwork import (
 )
 
 from simple_chat.core import protocol
-from simple_chat.core.protocol import Ack, Announce, ChatMessage, LineReader
+from simple_chat.core.protocol import Ack, Announce, ChatMessage, LineReader, Who
 from simple_chat.core.store import ChatStore, StoredMessage
 
 ANNOUNCE_EVERY_MS = 5000
@@ -37,6 +37,8 @@ class ChatNode(QObject):
     peers_changed = Signal()
     message_received = Signal(object)  # StoredMessage
     message_delivered = Signal(str, str)  # message id, peer id
+    # any word from a machine: its id and address (the scan listens)
+    peer_heard = Signal(str, str)
     # a line for the status bar
     status = Signal(str)
 
@@ -103,6 +105,10 @@ class ChatNode(QObject):
             sender.abort()
         for incoming in list(self._incoming):
             incoming.close()
+
+    @property
+    def discovery_port(self) -> int:
+        return self._discovery_port
 
     @property
     def port(self) -> int:
@@ -179,6 +185,9 @@ class ChatNode(QObject):
             self.message_received.emit(stored)
         return protocol.encode_ack(Ack(message.id))
 
+    def _who_reply(self) -> bytes:
+        return protocol.encode_announce_line(Announce(self.node_id, self.name, self.port))
+
     # --- discovery
 
     def _hear(self, peer_id: str, name: str, host: str, port: int) -> None:
@@ -187,6 +196,7 @@ class ChatNode(QObject):
         known = self._store.peer(peer_id)
         was_online = self.is_online(peer_id)
         self._heard[peer_id] = time.monotonic()
+        self.peer_heard.emit(peer_id, host)
         if known is None or (known.name, known.host, known.port) != (name, host, port) or time.time() - known.last_seen > 60:
             self._store.remember_peer(peer_id, name, host, port)
         if known is None or known.name != name or not was_online:
@@ -234,6 +244,11 @@ class ChatNode(QObject):
     def _send_announce(self, address: QHostAddress, hello: bool) -> None:
         data = protocol.encode_announce(Announce(self.node_id, self.name, self.port, hello))
         self._udp.writeDatagram(data, address, self._discovery_port)
+
+    def say_hello(self, address: QHostAddress) -> None:
+        """Ask one address "are you there?" (the network scan)."""
+        if self.discovery_ok:
+            self._send_announce(address, hello=True)
 
     def _ping_manual_hosts(self) -> None:
         if not self.discovery_ok:
@@ -369,6 +384,8 @@ class _Incoming(QObject):
             message = protocol.decode_line(line)
             if isinstance(message, ChatMessage):
                 self._socket.write(self._node._received(message, self._host))
+            elif isinstance(message, Who):
+                self._socket.write(self._node._who_reply())
         if self._reader.broken:
             self.close()
 

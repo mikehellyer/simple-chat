@@ -10,7 +10,9 @@ Two channels:
 - Messages, over TCP: one JSON object per line. The receiver answers
   every chat message with an "ack" line carrying its id, and only then
   does the sender mark it delivered — a message to a machine that's
-  switched off stays queued until it's next seen.
+  switched off stays queued until it's next seen. A "who" line instead
+  asks "are you Simple-Chat?", answered with an announcement line: the
+  network scan uses it to find machines whose UDP is blocked.
 
 Pure Python, no Qt, so it can all be tested without a network.
 """
@@ -62,11 +64,29 @@ class Ack:
     id: str
 
 
+@dataclass(frozen=True)
+class Who:
+    """"Are you Simple-Chat? Who are you?" — sent by the network scan."""
+
+
 def encode_announce(announce: Announce) -> bytes:
-    return json.dumps({
+    return json.dumps(_announce_obj(announce)).encode()
+
+
+def encode_announce_line(announce: Announce) -> bytes:
+    """An announcement as a TCP line: the answer to a Who."""
+    return _line(_announce_obj(announce))
+
+
+def encode_who() -> bytes:
+    return _line({"app": APP_TAG, "v": PROTOCOL_VERSION, "type": "who"})
+
+
+def _announce_obj(announce: Announce) -> dict:
+    return {
         "app": APP_TAG, "v": PROTOCOL_VERSION, "type": "announce",
         "id": announce.node_id, "name": announce.name, "port": announce.port, "hello": announce.hello,
-    }).encode()
+    }
 
 
 def decode_announce(data: bytes) -> Optional[Announce]:
@@ -92,11 +112,15 @@ def encode_ack(ack: Ack) -> bytes:
     return _line({"type": "ack", "id": ack.id})
 
 
-def decode_line(line: bytes) -> ChatMessage | Ack | None:
+def decode_line(line: bytes) -> ChatMessage | Ack | Who | Announce | None:
     obj = _loads(line)
     if obj is None:
         return None
     kind = obj.get("type")
+    if kind == "who":
+        return Who() if obj.get("app") == APP_TAG else None
+    if kind == "announce":
+        return decode_announce(line)
     if kind == "ack":
         return Ack(obj["id"]) if _is_id(obj.get("id")) else None
     if kind != "msg":

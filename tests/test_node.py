@@ -117,3 +117,52 @@ def test_discovery_by_broadcast(app):
     finally:
         a.stop()
         b.stop()
+
+
+def test_scan_finds_machine_by_tcp(app):
+    from simple_chat.net.scanner import NetworkScanner
+
+    # separate discovery ports, so only the TCP knock can find Beta
+    a, a_store = make("Alpha", free_udp_port(), "aaaa")
+    b, _ = make("Beta", free_udp_port(), "bbbb")
+    try:
+        with socket.socket() as closed:  # an address with nothing listening
+            closed.bind(("127.0.0.2", 0))
+            dead = closed.getsockname()[1]
+        results = []
+        scanner = NetworkScanner(a, targets=["127.0.0.1"], port=b.port)
+        scanner.finished.connect(results.append)
+        progress = []
+        scanner.progress.connect(lambda done, total: progress.append((done, total)))
+        scanner.start()
+        assert spin(lambda: results, 6)
+        assert results[0].get("bbbb") == "127.0.0.1"
+        assert a_store.peer("bbbb").name == "Beta" and a.is_online("bbbb")
+        assert progress[-1] == (1, 1)
+        # nothing there: finishes empty
+        results.clear()
+        empty = NetworkScanner(a, targets=["127.0.0.2"], port=dead)
+        empty.finished.connect(results.append)
+        empty.start()
+        assert spin(lambda: results, 6) and "bbbb" not in results[0]
+    finally:
+        a.stop()
+        b.stop()
+
+
+def test_scan_can_be_cancelled(app):
+    from simple_chat.net.scanner import NetworkScanner
+
+    a, _ = make("Alpha", free_udp_port(), "aaaa")
+    try:
+        results = []
+        scanner = NetworkScanner(a, targets=[f"10.255.{i // 250}.{i % 250 + 1}" for i in range(300)], port=9)
+        scanner.finished.connect(results.append)
+        scanner.start()
+        spin(lambda: False, 0.2)
+        scanner.cancel()
+        assert results == [{}]
+        spin(lambda: False, 0.3)
+        assert len(results) == 1
+    finally:
+        a.stop()

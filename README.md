@@ -12,6 +12,10 @@ they find each other by themselves.
   for passing URLs, codes and snippets between machines.
 - **Lives in the tray** when you close the window, so messages keep
   arriving, with a desktop notification for each.
+- **Scan the network** (button under the list, or File menu) knocks on
+  every address on your network for machines running Simple-Chat — for
+  networks where routers or Wi-Fi settings block the automatic broadcasts.
+  Machines it finds are remembered and kept in touch with directly.
 - Machines on another subnet or VPN: *File → Add a machine by address*.
 
 Builds for Linux (.deb, PC and Raspberry Pi), macOS (.dmg) and Windows

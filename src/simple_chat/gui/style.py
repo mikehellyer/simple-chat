@@ -31,6 +31,9 @@ QPushButton:hover {{ border-color: {ACCENT}; }}
 QPushButton#primary {{ background: {ACCENT}; color: white; border: none; border-radius: 8px;
     padding: 6px 20px; font-weight: 600; }}
 QPushButton#primary:disabled {{ background: #a9c1f5; }}
+QPushButton#scan {{ border: none; border-top: 1px solid {LINE}; border-right: 1px solid {LINE};
+    border-radius: 0; padding: 10px; color: {ACCENT}; font-weight: 600; }}
+QPushButton#scan:hover {{ background: {SHADE}; }}
 QStatusBar {{ background: {PAPER}; color: {MUTED}; border-top: 1px solid {LINE}; }}
 QMenuBar {{ background: {PAPER}; border-bottom: 1px solid {LINE}; }}
 QMenuBar::item {{ background: transparent; color: {INK}; padding: 4px 10px; }}
