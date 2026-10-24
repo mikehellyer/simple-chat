@@ -50,3 +50,13 @@ Filename: "{app}\Simple-Chat.exe"; Description: "Launch {#AppName}"; Flags: nowa
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#AppName}"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
+
+[Code]
+// "Start when I log in" lives in the user's HKCU Run key, written by the
+// app; take it away with the app so Windows doesn't try to start a
+// program that's gone.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#AppName}');
+end;

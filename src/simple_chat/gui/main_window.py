@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from simple_chat import __version__
 from simple_chat.core import crypto
+from simple_chat.core.autostart import Autostart
 from simple_chat.core.self_update import download_asset, find_asset_for_this_platform, launch_installer
 from simple_chat.core.settings import SettingsStore
 from simple_chat.core.store import ChatStore, StoredMessage
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
         self._node.message_delivered.connect(self._on_delivered)
         self._node.status.connect(lambda text: self.statusBar().showMessage(text, 15000))
         self._key = crypto.key_from_hex(s.network_key)
+        self._autostart = Autostart(profile)
+        self._autostart.refresh()
         self._node.channel = crypto.Channel(self._key)
 
         central = QWidget()
@@ -143,6 +146,11 @@ class MainWindow(QMainWindow):
         options = self.menuBar().addMenu("&Options")
         options.addAction("Encryption passphrase…", self._set_passphrase)
         options.addSeparator()
+        self._login_option = QAction("Start when I log in", self, checkable=True)
+        self._login_option.setChecked(self._autostart.is_enabled())
+        self._login_option.setEnabled(self._autostart.supported)
+        self._login_option.toggled.connect(self._set_start_at_login)
+        options.addAction(self._login_option)
         self._tray_option = QAction("Keep running in the tray when the window is closed", self, checkable=True)
         self._tray_option.setChecked(self._settings.settings.close_to_tray)
         self._tray_option.toggled.connect(lambda on: self._settings.update(close_to_tray=on))
@@ -258,6 +266,27 @@ class MainWindow(QMainWindow):
             self._settings.update(manual_hosts=hosts)
         self._node.set_manual_hosts(hosts)
         self.statusBar().showMessage(f"Asking {host} to say hello…", 8000)
+
+    @property
+    def has_tray(self) -> bool:
+        return self._tray is not None
+
+    def _set_start_at_login(self, on: bool) -> None:
+        try:
+            self._autostart.set_enabled(on)
+        except OSError as error:
+            QMessageBox.warning(self, "Start when I log in", f"Couldn't change that: {error}")
+        actual = self._autostart.is_enabled()
+        if actual != on:
+            self._login_option.blockSignals(True)
+            self._login_option.setChecked(actual)
+            self._login_option.blockSignals(False)
+            return
+        if on:
+            where = "in the tray" if self._tray is not None else "in a window"
+            self.statusBar().showMessage(f"Simple-Chat will start {where} when you log in", 8000)
+        else:
+            self.statusBar().showMessage("Simple-Chat won't start when you log in", 8000)
 
     def _set_passphrase(self) -> None:
         dialog = PassphraseDialog(crypto.fingerprint(self._key) if self._key else None, self)

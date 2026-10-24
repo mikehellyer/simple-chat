@@ -16,6 +16,8 @@ they find each other by themselves.
   every address on your network for machines running Simple-Chat — for
   networks where routers or Wi-Fi settings block the automatic broadcasts.
   Machines it finds are remembered and kept in touch with directly.
+- **Start when I log in** (Options menu) starts it quietly in the tray at
+  login on Linux, the Pi, macOS and Windows.
 - **Encryption** with a passphrase shared by your machines (see below).
 - Machines on another subnet or VPN: *File → Add a machine by address*.
 

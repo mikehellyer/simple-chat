@@ -102,9 +102,9 @@ def main() -> int:
     store = ChatStore(default_path(profile))
     window = MainWindow(settings, store, profile)
     server.newConnection.connect(window.bring_to_front)
-    if "--hidden" in sys.argv:
-        pass  # starts in the tray, e.g. from a login item
-    else:
+    # --hidden (from "Start when I log in") goes straight to the tray —
+    # unless there's no tray to go to, when the window has to show
+    if "--hidden" not in sys.argv or not window.has_tray:
         window.show()
     code = app.exec()
     store.close()
