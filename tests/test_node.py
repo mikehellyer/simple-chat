@@ -126,8 +126,8 @@ def test_scan_finds_machine_by_tcp(app):
     a, a_store = make("Alpha", free_udp_port(), "aaaa")
     b, _ = make("Beta", free_udp_port(), "bbbb")
     try:
-        with socket.socket() as closed:  # an address with nothing listening
-            closed.bind(("127.0.0.2", 0))
+        with socket.socket() as closed:  # a port with nothing listening
+            closed.bind(("127.0.0.1", 0))
             dead = closed.getsockname()[1]
         results = []
         scanner = NetworkScanner(a, targets=["127.0.0.1"], port=b.port)
@@ -141,7 +141,7 @@ def test_scan_finds_machine_by_tcp(app):
         assert progress[-1] == (1, 1)
         # nothing there: finishes empty
         results.clear()
-        empty = NetworkScanner(a, targets=["127.0.0.2"], port=dead)
+        empty = NetworkScanner(a, targets=["127.0.0.1"], port=dead)
         empty.finished.connect(results.append)
         empty.start()
         assert spin(lambda: results, 6) and "bbbb" not in results[0]
