@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Simple-Chat
+Comment=Pass messages between your computers on the local network
+Exec=/opt/simple-chat/Simple-Chat
+Icon=simple-chat
+Terminal=false
+Categories=Network;Chat;InstantMessaging;
